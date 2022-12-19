@@ -10,6 +10,14 @@ To run the requirements for running the code, you can clone the repo and install
 `pip install -r requirements.txt`
 To install the models run the `download_models.sh` file.
 
+# Structure
+
+* `/DeepAugment` contains scripts for evaluating deep augmented samples for ImageNet andn CIFAR-100.
+* `/Evaluation` contains scripts for evaluating models on CIFAR-C dataset 
+* `/ImageNetLoader` contains scripts for loading and manipulating ImageNet data
+* `/model_checkpoints_version_1` contains checkpoints for our saved models
+* `/VisualPrompting` contains scripts for training Visual prompts
+
 # Data
 
 # Data augmentation
