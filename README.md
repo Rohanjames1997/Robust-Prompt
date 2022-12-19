@@ -18,10 +18,8 @@ To install the models run the `download_models.sh` file.
 * `/model_checkpoints_version_1` contains checkpoints for our saved models
 * `/VisualPrompting` contains scripts for training Visual prompts
 
-# Data
-
 # Data augmentation
-### DeepAug:
+
 ### CutMix
 
 ```
