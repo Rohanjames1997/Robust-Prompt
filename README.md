@@ -20,6 +20,12 @@ To install the models run the `download_models.sh` file.
 
 # Data augmentation
 
+### DeepAug:
+
+```
+CUDA_VISIBLE_DEVICES=0 python3 DeepAugment/CAE_distort_cifar.py --total-workers=5 --worker-number=0
+```
+
 ### CutMix
 
 ```
