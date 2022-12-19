@@ -23,6 +23,11 @@ To install the models run the `download_models.sh` file.
 # Data augmentation
 ### DeepAug:
 ### CutMix
+
+```
+python VisualPrompting/main_clip_cutmix.py 
+```
+
 ### CutOut:
   To create the augmented images using cutout, run the following command:
   ```
@@ -34,15 +39,9 @@ To install the models run the `download_models.sh` file.
 
 Once the dataset is created concatenated with the augmented data from CIFAR100, we run the prompt tuning stage to train the network to learn the parameters for the prompt. To tune the prompt for the CLiP model, run the following command:
 ```
-python3 visual_prompting/main_clip.py --dataset cifar100 --root ./data --train_folder [TRAIN_FOLDER_PATH_WITH_AUGMENTATIONS] --val_folder [VAL_FOLDER_PATHS_WITH_AUGMENTATIONS] --num_workers 1 --batch_size 64
+python3 VisualPrompting/main_clip.py --dataset cifar100 --root ./data --train_folder [TRAIN_FOLDER_PATH_WITH_AUGMENTATIONS] --val_folder [VAL_FOLDER_PATHS_WITH_AUGMENTATIONS] --num_workers 1 --batch_size 64
 ```
 
-# Evaluation
-
-To test our trained prompts on natural corruptions, we evaluate our model on the CIFAR100-C dataset. 
-```
-python3 cifar_c.py --dataset cifar100 --root ./data --cifar_c_path [PATH_TO_CIFAR_C] --model_saved_path [SAVED_MODEL_FOLDER/checkpoint.pth.tar] --train_folder [TRAIN_FOLDER] --val_folder [VAL_FOLDER] --num_workers 3 --batch_size 500
-```
 
 # Acknowledgments
 
