@@ -1,0 +1,207 @@
+import sys
+import os
+import numpy as np
+import os
+import shutil
+import tempfile
+from PIL import Image
+import random
+import torch
+import torchvision
+import torch.nn as nn
+from torchvision import transforms as trn
+from torchvision import datasets
+import torchvision.transforms.functional as trnF 
+from torch.nn.functional import gelu, conv2d
+import torch.nn.functional as F
+import random
+import torch.utils.data as data
+from torchvision.datasets import ImageFolder
+from tqdm import tqdm
+import torchvision.transforms as transforms
+from torchvision.datasets import CIFAR100
+
+from DeepAugment.cae_32x32x32_zero_pad_bin import CAE
+
+import argparse
+parser = argparse.ArgumentParser(description='Fine-tune')
+parser.add_argument('--total-workers', default=None, type=int, required=True)
+parser.add_argument('--worker-number', default=None, type=int, required=True) # MUST BE 0-INDEXED
+args = parser.parse_args()
+
+all_classes = [str(i) for i in range(1, 101)]
+all_classes.sort()
+
+# Subset for this worker
+classes_chosen = np.array_split(all_classes, args.total_workers)[args.worker_number]
+
+class ImageNetSubsetDataset(torchvision.datasets.ImageFolder):
+    """
+    Dataset class to take a specified subset of some larger dataset
+    """
+    def __init__(self, root, *args, **kwargs):
+        
+        print("Using {0} classes {1}".format(len(classes_chosen), classes_chosen))
+
+        self.new_root = tempfile.mkdtemp()
+        for _class in classes_chosen:
+            orig_dir = os.path.join(root, _class)
+            assert os.path.isdir(orig_dir)
+            
+            os.symlink(orig_dir, os.path.join(self.new_root, _class))
+        
+        super().__init__(self.new_root, *args, **kwargs)
+
+        return self.new_root
+    
+    def __del__(self):
+        # Clean up
+        shutil.rmtree(self.new_root)
+
+
+test_transform = trn.Compose([trn.Resize(512), trn.ToTensor()])
+
+def get_weights():
+    weight_keys = ['e_conv_1.1.weight', 'e_conv_1.1.bias', 'e_conv_2.1.weight', 'e_conv_2.1.bias', 'e_block_1.1.weight', 'e_block_1.1.bias', 'e_block_1.4.weight', 'e_block_1.4.bias', 'e_block_2.1.weight', 'e_block_2.1.bias', 'e_block_2.4.weight', 'e_block_2.4.bias', 'e_block_3.1.weight', 'e_block_3.1.bias', 'e_block_3.4.weight', 'e_block_3.4.bias', 'e_conv_3.0.weight', 'e_conv_3.0.bias', 'd_up_conv_1.0.weight', 'd_up_conv_1.0.bias', 'd_up_conv_1.3.weight', 'd_up_conv_1.3.bias', 'd_block_1.1.weight', 'd_block_1.1.bias', 'd_block_1.4.weight', 'd_block_1.4.bias', 'd_block_2.1.weight', 'd_block_2.1.bias', 'd_block_2.4.weight', 'd_block_2.4.bias', 'd_block_3.1.weight', 'd_block_3.1.bias', 'd_block_3.4.weight', 'd_block_3.4.bias', 'd_up_conv_2.0.weight', 'd_up_conv_2.0.bias', 'd_up_conv_2.3.weight', 'd_up_conv_2.3.bias', 'd_up_conv_3.0.weight', 'd_up_conv_3.0.bias', 'd_up_conv_3.3.weight', 'd_up_conv_3.3.bias']
+    key_mapping = dict([(str(int(i / 2)) + ".weight", key) if i % 2 == 0 else (str(int(i / 2)) + ".bias", key) for i, key in enumerate(weight_keys)])
+    NUM_LAYERS = int(len(key_mapping.values()) / 2) # 21
+    NUM_DISTORTIONS = 8
+    MODEL_PATH = "CAE_Weights/model_final.state"
+    OPTION_LAYER_MAPPING = {0: range(11, NUM_LAYERS - 5), 1: range(8, NUM_LAYERS - 7), 2: range(8, NUM_LAYERS - 7), 3: range(10, NUM_LAYERS - 7), 4: range(8, NUM_LAYERS - 7), 5: range(8, NUM_LAYERS - 7), 6: range(8, NUM_LAYERS - 7), 7: range(8, NUM_LAYERS - 7), 8: range(8, NUM_LAYERS - 7)}
+
+    def get_name(i, tpe):
+        return key_mapping[str(i) + "." + tpe]
+
+    weights = torch.load(MODEL_PATH)
+    for option in random.sample(range(NUM_DISTORTIONS), 1):
+        i = np.random.choice(OPTION_LAYER_MAPPING[option])
+        j = np.random.choice(OPTION_LAYER_MAPPING[option])
+        weight_i = get_name(i, "weight")
+        bias_i = get_name(i, "bias")
+        weight_j = get_name(j, "weight")
+        bias_j = get_name(j, "weight")
+        if option == 0:
+            weights[weight_i] = torch.flip(weights[weight_i], (0,))
+            weights[bias_i] = torch.flip(weights[bias_i], (0,))
+            weights[weight_j] = torch.flip(weights[weight_j], (0,))
+            weights[bias_j] = torch.flip(weights[bias_j], (0,))
+        elif option == 1:
+            for k in [np.random.choice(weights[weight_i].size()[0]) for _ in range(12)]:
+                weights[weight_i][k] = -weights[weight_i][k]
+                weights[bias_i][k] = -weights[bias_i][k]
+        elif option == 2:
+            for k in [np.random.choice(weights[weight_i].size()[0]) for _ in range(25)]:
+                weights[weight_i][k] = 0 * weights[weight_i][k]
+                weights[bias_i][k] = 0 * weights[bias_i][k]
+        elif option == 3:
+            for k in [np.random.choice(weights[weight_i].size()[0]) for _ in range(25)]:
+                weights[weight_i][k] = -gelu(weights[weight_i][k])
+                weights[bias_i][k] = -gelu(weights[bias_i][k])
+        elif option == 4:
+            weights[weight_i] = weights[weight_i] *\
+            (1 + 2 * np.float32(np.random.uniform()) * (4*torch.rand_like(weights[weight_i]-1)))
+            weights[weight_j] = weights[weight_j] *\
+            (1 + 2 * np.float32(np.random.uniform()) * (4*torch.rand_like(weights[weight_j]-1)))
+        elif option == 5: ##### begin saurav #####
+            if random.random() < 0.5:
+                mask = torch.round(torch.rand_like(weights[weight_i]))
+            else:
+                mask = torch.round(torch.rand_like(weights[weight_i])) * 2 - 1
+            weights[weight_i] *= mask
+        elif option == 6:
+            _k = random.randint(1, 3)
+            weights[weight_i] = torch.rot90(weights[weight_i], k=_k, dims=(2,3))
+        elif option == 7:
+            out_filters = weights[weight_i].shape[0]
+            to_zero = list(set([random.choice(list(range(out_filters))) for _ in range(out_filters // 5)]))
+            weights[weight_i][to_zero] = weights[weight_i][to_zero] * -1.0
+        elif option == 8:
+            # Only keep the max filter value in the conv 
+            c1, c2, width = weights[weight_i].shape[0], weights[weight_i].shape[1], weights[weight_i].shape[2]
+            assert weights[weight_i].shape[2] == weights[weight_i].shape[3]
+
+            w = torch.reshape(weights[weight_i], shape=(c1, c2, width ** 2))
+            res = torch.topk(w, k=1)
+
+            w_new = torch.zeros_like(w).scatter(2, res.indices, res.values)
+            w_new = w_new.reshape(c1, c2, width, width)
+            weights[weight_i] = w_new
+        
+    return weights    
+
+net = CAE()
+net.load_state_dict(get_weights())
+net.cuda()
+net.eval()
+
+def find_classes(dir):
+    classes = [d for d in os.listdir(dir) if os.path.isdir(os.path.join(dir, d))]
+    classes.sort()
+    class_to_idx = {classes[i]: i for i in range(len(classes))}
+    return classes, class_to_idx
+
+# ImageNetSubsetDataset
+class FolderWithPath():
+    def __init__(self,loader):
+        print("Got inside FolderWithPath")
+        self.loader = loader
+        # new_root = super(FolderWithPath, self).__init__(root, transform=transform)
+
+    #     # classes, class_to_idx = find_classes(new_root)
+    #     # self.class_to_idx = class_to_idx
+    #     # self.idx_to_class = {v: k for k, v in class_to_idx.items()}
+
+    def run_distortion(self):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: (sample, target) where target is class_index of the target class.
+        """
+        # path, target = self.imgs[index]
+        # sample = self.loader(path)
+        i = 0
+        print("Running the data loader now")
+        for image, target in tqdm(self.loader):
+            # if self.transform is not None:
+            #     sample = self.transform(sample)
+
+            save_path = './CAE_Train/' + str(target.item()) + '/'
+
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+
+            save_path += str(i) + ".jpeg"
+
+            if np.random.uniform() < 0.05:
+                weights = get_weights()
+                net.load_state_dict(weights)
+                net.eval()
+
+            with torch.no_grad():
+                img = trnF.to_pil_image(net(image.cuda()).squeeze().to('cpu').clamp(0, 1))
+            # print("Saving image now")
+            img.save(save_path)
+            i += 1
+
+        return 0
+
+preprocess = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
+    ])
+cifar_dataset = CIFAR100("./data/", transform=test_transform,
+                             download=True, train=True)
+cifar_loader = torch.utils.data.DataLoader(cifar_dataset, batch_size=1, shuffle=True)
+distored_dataset = FolderWithPath(cifar_loader)
+distored_dataset.run_distortion()
+# loader = torch.utils.data.DataLoader(distored_dataset, batch_size=1, shuffle=True)
+
+# for _ in tqdm(loader): 
+#     continue
+
+
+
