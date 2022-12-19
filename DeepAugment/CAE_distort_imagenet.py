@@ -21,7 +21,7 @@ from tqdm import tqdm
 import torchvision.transforms as transforms
 from torchvision.datasets import CIFAR100
 
-from CAE_Model.cae_32x32x32_zero_pad_bin import CAE
+from DeepAugment.cae_32x32x32_zero_pad_bin import CAE
 
 import argparse
 parser = argparse.ArgumentParser(description='Fine-tune')
